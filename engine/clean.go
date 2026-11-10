@@ -190,9 +190,10 @@ type CleanState struct {
 	Err      string
 	// SelectedSection is which section's entries are shown on the right.
 	SelectedSection int
+	// Trash is the 废纸篓 panel state.
+	Trash *TrashState
 }
 
-// NewCleanState builds state with the provider probed.
 func NewCleanState() *CleanState {
 	return &CleanState{Provider: FindCleanProvider()}
 }

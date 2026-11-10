@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 
@@ -92,7 +93,10 @@ func cleanReport(c *ui.Context, a *app.App, st *engine.CleanState, t ui.Theme) {
 	r := st.Report
 
 	ui.Column(c).Fill().Padding(16, 20).Gap(12).Children(func() {
-		aiEntryCard(c, a, t)
+		ui.Row(c).FillWidth().Gap(12).Children(func() {
+			ui.Box(c).Grow(1).Children(func() { aiEntryCard(c, a, t) })
+			ui.Box(c).Grow(1).Children(func() { trashCard(c, a, st, t) })
+		})
 
 		// Summary header.
 		ui.Row(c).FillWidth().AlignItems(ui.Center).Children(func() {
@@ -220,4 +224,108 @@ func openMoleInTerminal() {
 	do script "mo clean"
 end tell`
 	_ = exec.Command("osascript", "-e", script).Run()
+}
+
+// trashCard is the 废纸篓 entry beside the AI card.
+func trashCard(c *ui.Context, a *app.App, st *engine.CleanState, t ui.Theme) {
+	ts := st.Trash
+	if ts == nil {
+		ts = &engine.TrashState{}
+		st.Trash = ts
+	}
+	if ts.Report == nil && !ts.Scanning && ts.Err == "" {
+		ts.Scan(func() { a.Win.Invalidate() })
+	}
+
+	ui.Column(c).FillWidth().Padding(12, 16).Background(t.Surface).Radius(12).Gap(8).Children(func() {
+		ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(12).Children(func() {
+			ui.Text(c, "🗑️").FontSize(22)
+			ui.Column(c).Grow(1).Gap(2).Children(func() {
+				ui.Text(c, "废纸篓").FontSize(13).Bold()
+				switch {
+				case ts.Scanning:
+					ui.Text(c, "扫描中…").FontSize(11).TextColor(t.TextMuted)
+				case ts.Report == nil || !ts.Report.Readable:
+					ui.Text(c, "需要完全磁盘访问权限").FontSize(11).TextColor(ui.Hex("#e08c3c"))
+				default:
+					sub := engine.FmtBytes(ts.Report.TotalSize)
+					if n := len(ts.Report.Items); n > 0 {
+						sub = fmt.Sprintf("%s · %d 项", sub, n)
+					}
+					if rem := ts.Report.RemnantTotal(); rem > 0 {
+						sub += fmt.Sprintf("，残留 %s", engine.FmtBytes(rem))
+					}
+					ui.Text(c, sub).FontSize(11).TextColor(t.TextMuted)
+				}
+			})
+			if ts.Report != nil && ts.Report.Readable {
+				ui.Row(c).Gap(6).Children(func() {
+					if len(ts.Report.Items) > 0 {
+						ui.Button(c, "详情").OnClick(func() { ts.Expanded = !ts.Expanded })
+						if ts.Cleaning {
+							ui.Spinner(c).Size(16, 16)
+						} else {
+							ui.Button(c, "清空").OnClick(func() {
+								ts.Empty(func() { a.Win.Invalidate() })
+							})
+						}
+					}
+				})
+			}
+		})
+
+		// Expanded: item list + per-app remnant rows.
+		if ts.Expanded && ts.Report != nil && len(ts.Report.Items) > 0 {
+			ui.Divider(c).BorderColor(t.Border)
+			ui.Column(c).Gap(4).Children(func() {
+				for i := range ts.Report.Items {
+					if i >= 8 && !showAllTrash {
+						ui.Button(c, fmt.Sprintf("显示全部 %d 项…", len(ts.Report.Items))).
+							OnClick(func() { showAllTrash = true })
+						break
+					}
+					trashRow(c, a, ts, i, t)
+				}
+			})
+		}
+	})
+}
+
+var showAllTrash bool
+
+func trashRow(c *ui.Context, a *app.App, ts *engine.TrashState, i int, t ui.Theme) {
+	it := ts.Report.Items[i]
+	ui.Column(c).FillWidth().Gap(3).Children(func() {
+		ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(8).Children(func() {
+			icon := "📄"
+			if it.IsApp {
+				icon = "📦"
+			}
+			ui.Text(c, icon).FontSize(13)
+			ui.Column(c).Grow(1).Gap(1).Children(func() {
+				ui.Text(c, it.Name).FontSize(12).SingleLine()
+				ui.Text(c, engine.FmtBytes(it.Size)).FontSize(10).TextColor(t.TextMuted)
+			})
+			if it.IsApp && len(it.Remnant) > 0 {
+				idx := i
+				ui.Button(c, "清残留").OnClick(func() {
+					ts.CleanAppRemnants(idx, func() { a.Win.Invalidate() })
+				})
+			}
+		})
+		if it.IsApp && len(it.Remnant) > 0 {
+			ui.Row(c).Padding(0, 0, 0, 24).Children(func() {
+				ui.Textf(c, "%d 项残留 · %s", len(it.Remnant),
+					engine.FmtBytes(trashRemnantBytes(it))).FontSize(10).TextColor(t.TextMuted)
+			})
+		}
+	})
+}
+
+func trashRemnantBytes(it engine.TrashItem) int64 {
+	var n int64
+	for _, r := range it.Remnant {
+		n += r.Size
+	}
+	return n
 }
