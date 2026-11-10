@@ -53,6 +53,10 @@ type App struct {
 	Software *engine.AppState
 	// Optimize is the Phase 5 maintenance state.
 	Optimize *engine.OptimizeState
+	// AI is the AI-tools cleanup state (a sub-view of the clean page).
+	AI *engine.AIState
+	// ShowAI switches the clean page to the AI-tools view.
+	ShowAI bool
 
 	mu sync.Mutex
 }

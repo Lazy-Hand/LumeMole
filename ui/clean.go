@@ -18,6 +18,12 @@ func CleanPage(c *ui.Context, a *app.App) {
 	t := c.Theme()
 	st := cleanState(a)
 
+	// AI-tools sub-view takes over the whole page when opened.
+	if a.ShowAI {
+		AIPage(c, a)
+		return
+	}
+
 	if st.Provider == nil || !st.Provider.Available() {
 		placeholder(c, "⚠️", "未找到 Mole CLI",
 			"清理功能依赖 mole CLI，请先通过 Homebrew 安装 mole:\n  brew install mole")
@@ -86,6 +92,8 @@ func cleanReport(c *ui.Context, a *app.App, st *engine.CleanState, t ui.Theme) {
 	r := st.Report
 
 	ui.Column(c).Fill().Padding(16, 20).Gap(12).Children(func() {
+		aiEntryCard(c, a, t)
+
 		// Summary header.
 		ui.Row(c).FillWidth().AlignItems(ui.Center).Children(func() {
 			ui.Column(c).Grow(1).Gap(4).Children(func() {
