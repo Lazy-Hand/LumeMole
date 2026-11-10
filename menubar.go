@@ -9,6 +9,7 @@ import (
 	"github.com/egoist/mygo/ui"
 
 	"lumemole/app"
+	"lumemole/engine"
 )
 
 // MenuBarState holds the tray and its toggles.
@@ -17,15 +18,16 @@ type MenuBarState struct {
 	keepAwakeOff  func() // release from Power.KeepAwake
 	keepAwakeOn   bool
 	caffeinateCmd *exec.Cmd // "风扇降温" uses caffeinate-like; here we just track
+
+	// Live metrics from status-go, updating the tray title + tooltip.
+	metricStop chan struct{}
+	metricOn   bool
 }
 
 var menuBar MenuBarState
 
 // setupMenuBar builds the tray icon + menu mirroring Mole's 菜单栏 extras.
 func setupMenuBar(a *app.App) {
-	// 18x18 template PNG (a simple mole-ish dot); generated at runtime
-	// would need an encoder — use a small built-in via image/png later.
-	// For now: title-only tray (text shows in menu bar).
 	tray, err := mygo.NewTray(mygo.TrayOptions{
 		ID:      "lumemole.tray",
 		Title:   "🐹",
@@ -36,6 +38,82 @@ func setupMenuBar(a *app.App) {
 		return
 	}
 	menuBar.Tray = tray
+	menuBar.startMetrics(a)
+}
+
+// startMetrics streams status-go snapshots into the tray title/tooltip.
+// The title shows a compact CPU/MEM readout; the tooltip carries the rest.
+func (m *MenuBarState) startMetrics(a *app.App) {
+	if m.metricOn {
+		return
+	}
+	p := engine.FindStatusProvider()
+	if p == nil {
+		return
+	}
+	m.metricOn = true
+	m.metricStop = make(chan struct{})
+	snaps, errs := p.Watch(2*time.Second, m.metricStop)
+	go func() {
+		for {
+			select {
+			case s, ok := <-snaps:
+				if !ok {
+					return
+				}
+				m.applySnapshot(s)
+			case _, ok := <-errs:
+				if !ok {
+					return
+				}
+			}
+		}
+	}()
+	_ = a // reserved for future "open status page at metric" wiring
+}
+
+// applySnapshot refreshes tray text from one status snapshot.
+func (m *MenuBarState) applySnapshot(s *engine.StatusSnapshot) {
+	if m.Tray == nil {
+		return
+	}
+	// Compact title: figure-space-padded so the bar item doesn't jitter.
+	title := fmt.Sprintf("🐹 %s%% %s%%",
+		padNum(int(s.CPU.Usage), 2), padNum(int(s.Memory.UsedPercent), 2))
+	m.Tray.SetTitle(title)
+
+	var rx, tx float64
+	for _, n := range s.Network {
+		rx += n.RxRateMBs
+		tx += n.TxRateMBs
+	}
+	tip := fmt.Sprintf("LumeMole · CPU %.0f%% · 内存 %.0f%% · ↓%.1f ↑%.1f MB/s",
+		s.CPU.Usage, s.Memory.UsedPercent, rx, tx)
+	if len(s.Batteries) > 0 {
+		tip += fmt.Sprintf(" · 电池 %d%%", s.Batteries[0].Percent)
+	}
+	if s.Thermal.FanSpeed > 0 {
+		tip += fmt.Sprintf(" · 风扇 %.0f rpm", s.Thermal.FanSpeed)
+	}
+	m.Tray.SetToolTip(tip)
+}
+
+// padNum right-pads a small int with figure spaces for fixed-width digits.
+func padNum(n, width int) string {
+	s := fmt.Sprintf("%d", n)
+	for len(s) < width {
+		s = " " + s
+	}
+	return s
+}
+
+// stopMetrics ends the status watch.
+func (m *MenuBarState) stopMetrics() {
+	if m.metricStop != nil {
+		close(m.metricStop)
+		m.metricStop = nil
+	}
+	m.metricOn = false
 }
 
 func trayMenu(a *app.App) *mygo.Menu {
@@ -112,9 +190,6 @@ func speedTest() {
 	// Download test via Cloudflare speed endpoint.
 	down := downloadSpeed("https://speed.cloudflare.com/__down?bytes=10000000")
 	msg := fmt.Sprintf("延迟 %s · 下载 %s", ping, down)
-	if menuBar.Tray != nil {
-		menuBar.Tray.SetToolTip(msg)
-	}
 	// Also notify.
 	mygo.NewNotification(mygo.NotificationOptions{
 		Title: "网络测速",
