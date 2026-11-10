@@ -3,9 +3,7 @@ package engine
 import (
 	"encoding/json"
 	"fmt"
-	"os"
 	"os/exec"
-	"path/filepath"
 	"time"
 )
 
@@ -167,32 +165,14 @@ type MoleStatusProvider struct {
 	bin string // path to status-go binary
 }
 
-// FindStatusProvider locates status-go: PATH `mo` → its libexec dir → status-go.
+// FindStatusProvider locates status-go: `mo` → its libexec dir → status-go.
 // Returns nil when mole is not installed.
 func FindStatusProvider() *MoleStatusProvider {
-	mo, err := exec.LookPath("mo")
-	if err != nil {
-		mo, err = exec.LookPath("mole")
-		if err != nil {
-			return nil
-		}
+	bin := moleLibexecBin(findMole(), "status-go")
+	if bin == "" {
+		return nil
 	}
-	// mo may be a symlink into Cellar; resolve to find libexec next to it.
-	real, err := filepath.EvalSymlinks(mo)
-	if err != nil {
-		real = mo
-	}
-	// Homebrew layout: <cellar>/bin/mo → libexec/bin/status-go.
-	cand := filepath.Join(filepath.Dir(real), "..", "libexec", "bin", "status-go")
-	if _, err := os.Stat(cand); err == nil {
-		return &MoleStatusProvider{bin: cand}
-	}
-	// Direct sibling (non-standard installs).
-	cand = filepath.Join(filepath.Dir(real), "status-go")
-	if _, err := os.Stat(cand); err == nil {
-		return &MoleStatusProvider{bin: cand}
-	}
-	return nil
+	return &MoleStatusProvider{bin: bin}
 }
 
 func (p *MoleStatusProvider) Available() bool { return p != nil && p.bin != "" }

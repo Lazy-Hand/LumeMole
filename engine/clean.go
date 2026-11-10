@@ -50,11 +50,9 @@ type CleanProvider struct {
 
 // FindCleanProvider locates the `mo` CLI.
 func FindCleanProvider() *CleanProvider {
-	mo, err := exec.LookPath("mo")
-	if err != nil {
-		if mo, err = exec.LookPath("mole"); err != nil {
-			return nil
-		}
+	mo := findMole()
+	if mo == "" {
+		return nil
 	}
 	return &CleanProvider{moPath: mo}
 }

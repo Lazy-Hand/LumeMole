@@ -3,7 +3,6 @@ package engine
 import (
 	"encoding/json"
 	"fmt"
-	"os"
 	"os/exec"
 	"path/filepath"
 	"time"
@@ -39,22 +38,11 @@ type AnalyzeProvider struct {
 
 // FindAnalyzeProvider locates analyze-go next to the `mo` binary.
 func FindAnalyzeProvider() *AnalyzeProvider {
-	mo, err := exec.LookPath("mo")
-	if err != nil {
-		mo, err = exec.LookPath("mole")
-		if err != nil {
-			return nil
-		}
+	bin := moleLibexecBin(findMole(), "analyze-go")
+	if bin == "" {
+		return nil
 	}
-	real, err := filepath.EvalSymlinks(mo)
-	if err != nil {
-		real = mo
-	}
-	cand := filepath.Join(filepath.Dir(real), "..", "libexec", "bin", "analyze-go")
-	if _, err := os.Stat(cand); err == nil {
-		return &AnalyzeProvider{bin: cand}
-	}
-	return nil
+	return &AnalyzeProvider{bin: bin}
 }
 
 func (p *AnalyzeProvider) Available() bool { return p != nil && p.bin != "" }
