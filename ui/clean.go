@@ -60,7 +60,47 @@ func CleanPage(c *ui.Context, a *app.App) {
 	}
 
 	// Report view.
+	if st.DeleteResult != nil {
+		cleanDone(c, a, st, *t)
+		return
+	}
 	cleanReport(c, a, st, *t)
+}
+
+// cleanDone is the result overlay after an in-app delete.
+func cleanDone(c *ui.Context, a *app.App, st *engine.CleanState, t ui.Theme) {
+	r := st.DeleteResult
+	ui.Column(c).Fill().Center().Gap(16).Padding(40).Children(func() {
+		ui.Text(c, "✅").FontSize(60)
+		ui.Textf(c, "已清理 %s", engine.FmtBytes(r.FreedBytes)).FontSize(22).Bold()
+		ui.Textf(c, "移到废纸篓 %d 项", len(r.Trashed)).FontSize(13).TextColor(t.TextMuted)
+		if len(r.Skipped) > 0 {
+			ui.Textf(c, "跳过 %d 项", len(r.Skipped)).FontSize(12).TextColor(ui.Hex("#e08c3c"))
+			ui.Column(c).Gap(4).Padding(10, 16).Background(t.Surface).Radius(10).Children(func() {
+				shown := r.Skipped
+				if len(shown) > 6 {
+					shown = shown[:6]
+				}
+				for _, sk := range shown {
+					ui.Textf(c, "%s — %s", shortenPath(sk.Path), sk.Reason).FontSize(11).TextColor(t.TextMuted)
+				}
+				if len(r.Skipped) > 6 {
+					ui.Textf(c, "… 等 %d 项", len(r.Skipped)-6).FontSize(10).TextColor(t.TextMuted)
+				}
+			})
+		}
+		ui.Row(c).Gap(10).Children(func() {
+			if ui.Button(c, "再扫一次").Clicked() {
+				st.Report = nil
+				st.DeleteResult = nil
+				st.Run(func() { a.Win.Invalidate() }, nil)
+			}
+			if ui.PrimaryButton(c, "完成").Clicked() {
+				st.Report = nil
+				st.DeleteResult = nil
+			}
+		})
+	})
 }
 
 func cleanState(a *app.App) *engine.CleanState {
@@ -114,9 +154,19 @@ func cleanReport(c *ui.Context, a *app.App, st *engine.CleanState, t ui.Theme) {
 					st.Report = nil
 					st.Run(func() { a.Win.Invalidate() }, nil)
 				}
-				ui.PrimaryButton(c, "在终端执行清理").Height(34).OnClick(func() {
-					openMoleInTerminal()
-				})
+				if st.Deleting {
+					ui.Spinner(c).Size(20, 20)
+					ui.Text(c, st.Progress).FontSize(11).TextColor(t.TextMuted)
+				} else {
+					ui.PrimaryButton(c, fmt.Sprintf("清理 %s", engine.FmtBytes(r.SelectedSize()))).Height(34).OnClick(func() {
+						st.Delete(func() { a.Win.Invalidate() },
+							func(done, total int, cur string) {
+								a.Win.Update(func() {
+									st.Progress = fmt.Sprintf("清理中 %d/%d", done, total)
+								})
+							})
+					})
+				}
 			})
 		})
 

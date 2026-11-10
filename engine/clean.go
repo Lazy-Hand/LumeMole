@@ -192,6 +192,9 @@ type CleanState struct {
 	SelectedSection int
 	// Trash is the 废纸篓 panel state.
 	Trash *TrashState
+	// Deleting and DeleteResult track an in-app clean.
+	Deleting     bool
+	DeleteResult *DeleteResult
 }
 
 func NewCleanState() *CleanState {
@@ -218,6 +221,42 @@ func (s *CleanState) Run(onDone func(), onProgress func(string)) {
 			s.Report = rep
 		}
 		s.Running = false
+		if onDone != nil {
+			onDone()
+		}
+	}()
+}
+
+// Delete trashes the report's selected entries. Progress reports done/total
+// on each path; onDone runs via win.Update.
+func (s *CleanState) Delete(onDone func(), onProgress func(done, total int, cur string)) {
+	if s.Deleting || s.Report == nil {
+		return
+	}
+	s.Deleting = true
+	s.DeleteResult = nil
+	go func() {
+		var paths []string
+		for _, e := range s.Report.Selected() {
+			paths = append(paths, e.Path)
+		}
+		res := DeletePaths(paths, WhitelistPath(), func(done, total int, cur string) {
+			if onProgress != nil {
+				onProgress(done, total, cur)
+			}
+		})
+		var freed int64
+		for _, p := range res.Trashed {
+			// Approximate freed bytes from the report's recorded sizes.
+			for _, e := range s.Report.Selected() {
+				if e.Path == p && e.Size > 0 {
+					freed += e.Size
+				}
+			}
+		}
+		res.FreedBytes = freed
+		s.DeleteResult = res
+		s.Deleting = false
 		if onDone != nil {
 			onDone()
 		}
