@@ -12,8 +12,9 @@ func TopBar(c *ui.Context, a *app.App) {
 	t := c.Theme()
 
 	ui.Row(c).FillWidth().Padding(14, 22, 10, 22).AlignItems(ui.Center).Children(func() {
-		// Left: logo (fixed width so tabs stay centered).
-		ui.Row(c).Width(140).Gap(8).AlignItems(ui.Center).Children(func() {
+		// Left: logo (fixed width so tabs stay centered). Leading 60 clears
+		// the hidden-titlebar traffic lights (close/min/zoom sit ~x12–66).
+		ui.Row(c).Width(200).Gap(8).Padding(0, 0, 0, 60).AlignItems(ui.Center).Children(func() {
 			ui.Text(c, "🐹").FontSize(20)
 			ui.Text(c, "LumeMole").FontSize(15).Bold()
 		})
@@ -23,8 +24,8 @@ func TopBar(c *ui.Context, a *app.App) {
 			pillTabs(c, a)
 		})
 
-		// Right: status chip (fixed width).
-		ui.Row(c).Width(140).Justify(ui.End).Children(func() {
+		// Right: status chip (fixed width, mirrors the left 200).
+		ui.Row(c).Width(200).Justify(ui.End).Children(func() {
 			statusChip(c, a, *t)
 		})
 	})
