@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os/exec"
 	"path/filepath"
+	"sort"
+	"strings"
 	"time"
 )
 
@@ -79,6 +81,8 @@ type AnalyzeState struct {
 	ScanPath  string // path being scanned, for spinner label
 	Err       string
 	StartedAt time.Time
+	// ViewMode: 0 = 按目录 (tree+treemap), 1 = 按类型 (kind groups).
+	ViewMode int
 }
 
 // NewAnalyzeState builds state, probing for analyze-go.
@@ -195,4 +199,126 @@ func BuildTree(result *AnalyzeResult) []*TreeNode {
 		})
 	}
 	return nodes
+}
+
+// FileKind classifies an entry by its extension into Mole's analyze kinds.
+type FileKind string
+
+const (
+	KindImage     FileKind = "图片"
+	KindVideo     FileKind = "视频"
+	KindAudio     FileKind = "音频"
+	KindDocument  FileKind = "文档"
+	KindArchive   FileKind = "压缩包"
+	KindInstaller FileKind = "安装包"
+	KindDiskImage FileKind = "磁盘镜像"
+	KindDeveloper FileKind = "开发文件"
+	KindDesign    FileKind = "设计"
+	KindBackup    FileKind = "备份"
+	KindFont      FileKind = "字体"
+	KindBook      FileKind = "图书"
+	KindApp       FileKind = "应用"
+	KindAlias     FileKind = "替身"
+	KindData      FileKind = "数据"
+	KindOther     FileKind = "其他"
+	KindFolder    FileKind = "文件夹"
+)
+
+// kindByExt maps lowercase extensions (no dot) to kinds.
+var kindByExt = map[string]FileKind{
+	"jpg": KindImage, "jpeg": KindImage, "png": KindImage, "gif": KindImage,
+	"heic": KindImage, "heif": KindImage, "webp": KindImage, "tiff": KindImage,
+	"bmp": KindImage, "svg": KindImage, "icns": KindImage, "raw": KindImage,
+	"dng": KindImage, "cr2": KindImage, "nef": KindImage,
+
+	"mp4": KindVideo, "mov": KindVideo, "mkv": KindVideo, "avi": KindVideo,
+	"webm": KindVideo, "m4v": KindVideo, "flv": KindVideo, "wmv": KindVideo,
+
+	"mp3": KindAudio, "aac": KindAudio, "flac": KindAudio, "wav": KindAudio,
+	"ogg": KindAudio, "m4a": KindAudio, "aiff": KindAudio, "opus": KindAudio,
+
+	"pdf": KindDocument, "doc": KindDocument, "docx": KindDocument,
+	"txt": KindDocument, "rtf": KindDocument, "md": KindDocument,
+	"pages": KindDocument, "numbers": KindDocument, "key": KindDocument,
+	"xls": KindDocument, "xlsx": KindDocument, "ppt": KindDocument,
+	"pptx": KindDocument, "csv": KindDocument, "epub": KindBook, "mobi": KindBook,
+
+	"zip": KindArchive, "tar": KindArchive, "gz": KindArchive, "bz2": KindArchive,
+	"xz": KindArchive, "7z": KindArchive, "rar": KindArchive, "zst": KindArchive,
+
+	"pkg": KindInstaller, "mpkg": KindInstaller,
+	"dmg": KindDiskImage, "iso": KindDiskImage, "sparseimage": KindDiskImage,
+
+	"go": KindDeveloper, "py": KindDeveloper, "js": KindDeveloper,
+	"ts": KindDeveloper, "tsx": KindDeveloper, "jsx": KindDeveloper,
+	"java": KindDeveloper, "kt": KindDeveloper, "rs": KindDeveloper,
+	"cpp": KindDeveloper, "c": KindDeveloper, "h": KindDeveloper,
+	"swift": KindDeveloper, "rb": KindDeveloper, "php": KindDeveloper,
+	"sh": KindDeveloper, "json": KindDeveloper, "yaml": KindDeveloper,
+	"yml": KindDeveloper, "toml": KindDeveloper, "xml": KindDeveloper,
+	"html": KindDeveloper, "css": KindDeveloper, "scss": KindDeveloper,
+	"sql": KindDeveloper, "ipynb": KindDeveloper,
+
+	"sketch": KindDesign, "fig": KindDesign, "xd": KindDesign,
+	"psd": KindDesign, "ai": KindDesign, "indd": KindDesign,
+	"afdesign": KindDesign, "afphoto": KindDesign,
+
+	"bak": KindBackup, "backup": KindBackup, "old": KindBackup,
+
+	"ttf": KindFont, "otf": KindFont, "woff": KindFont, "woff2": KindFont,
+
+	"app": KindApp, "appex": KindApp,
+
+	"sqlite": KindData, "sqlite3": KindData, "db": KindData,
+	"plist": KindData, "log": KindData, "bin": KindData, "dat": KindData,
+}
+
+// KindOf classifies an entry by extension. Directories return KindFolder.
+func KindOf(e AnalyzeEntry) FileKind {
+	if e.IsDir {
+		return KindFolder
+	}
+	name := strings.ToLower(e.Name)
+	if strings.HasSuffix(name, ".app") || strings.HasSuffix(name, ".dmg") {
+		return kindByExt[strings.TrimPrefix(filepath.Ext(name), ".")]
+	}
+	ext := strings.TrimPrefix(filepath.Ext(name), ".")
+	if k, ok := kindByExt[ext]; ok {
+		return k
+	}
+	// macOS alias files often have no extension; treat small unknowns as data.
+	return KindOther
+}
+
+// KindGroup aggregates entries of one kind for the "按类型" view.
+type KindGroup struct {
+	Kind    FileKind
+	Count   int
+	Size    int64
+	Entries []AnalyzeEntry
+}
+
+// GroupByKind buckets entries (files only — dirs go to the path view).
+func GroupByKind(entries []AnalyzeEntry) []KindGroup {
+	groups := map[FileKind]*KindGroup{}
+	for _, e := range entries {
+		if e.IsDir {
+			continue
+		}
+		k := KindOf(e)
+		g, ok := groups[k]
+		if !ok {
+			g = &KindGroup{Kind: k}
+			groups[k] = g
+		}
+		g.Count++
+		g.Size += e.Size
+		g.Entries = append(g.Entries, e)
+	}
+	out := make([]KindGroup, 0, len(groups))
+	for _, g := range groups {
+		out = append(out, *g)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Size > out[j].Size })
+	return out
 }

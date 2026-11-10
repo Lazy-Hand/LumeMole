@@ -57,8 +57,12 @@ func AnalyzePage(c *ui.Context, a *app.App) {
 	ui.Column(c).Fill().Padding(16, 20).Gap(12).Children(func() {
 		breadcrumb(c, a, st, *t)
 		ui.Row(c).Fill().Gap(14).Children(func() {
-			entryList(c, a, st, *t)
-			treemapView(c, a, st, *t)
+			if st.ViewMode == 1 {
+				kindList(c, a, st, *t)
+			} else {
+				entryList(c, a, st, *t)
+				treemapView(c, a, st, *t)
+			}
 		})
 	})
 }
@@ -96,7 +100,20 @@ func breadcrumb(c *ui.Context, a *app.App, st *engine.AnalyzeState, t ui.Theme) 
 			ui.Spacer(c)
 		}
 
-		// Right side: summary + rescan.
+		// Right side: view toggle + summary + rescan.
+		ui.Row(c).Gap(2).Padding(3).Background(t.Surface).Radius(12).Children(func() {
+			for i, label := range []string{"按目录", "按类型"} {
+				idx := i
+				el := ui.Box(c).Padding(4, 12).Radius(10).Children(func() {
+					ui.Text(c, label).FontSize(11)
+				})
+				if st.ViewMode == idx {
+					el.Background(t.SurfaceHover)
+				} else {
+					el.OnClick(func() { st.ViewMode = idx })
+				}
+			}
+		})
 		if st.Result != nil {
 			ui.Textf(c, "%d 项 · %s", len(st.Result.Entries), engine.FmtBytes(st.Result.TotalSize)).
 				FontSize(12).TextColor(t.TextMuted)
@@ -207,6 +224,83 @@ func treemapPalette() []ui.Color {
 		ui.Hex("#8868a8"), // lavender
 		ui.Hex("#a06090"), // mauve
 		ui.Hex("#b06070"), // rose
+	}
+}
+
+// kindList renders the 按类型 view: file-type groups with sizes.
+func kindList(c *ui.Context, a *app.App, st *engine.AnalyzeState, t ui.Theme) {
+	if st.Result == nil {
+		return
+	}
+	groups := engine.GroupByKind(st.Result.Entries)
+	if len(groups) == 0 {
+		ui.Column(c).Grow(1).Fill().Center().Children(func() {
+			ui.Text(c, "本层没有文件").TextColor(t.TextMuted)
+		})
+		return
+	}
+	ui.Column(c).Grow(1).Fill().Background(t.Surface).Radius(12).Children(func() {
+		ui.Row(c).FillWidth().Padding(10, 16, 4, 16).Children(func() {
+			ui.Textf(c, "%d 个类型 · %s", len(groups), engine.FmtBytes(totalGroupSize(groups))).
+				FontSize(13).Bold()
+		})
+		ui.Divider(c).BorderColor(t.Border)
+		ui.List(c, kindListState, len(groups), func(row int) {
+			g := groups[row]
+			ui.Row(c).FillWidth().Padding(9, 16).AlignItems(ui.Center).Gap(12).Children(func() {
+				ui.Text(c, kindIcon(g.Kind)).FontSize(16).Width(24)
+				ui.Column(c).Grow(1).Gap(2).Children(func() {
+					ui.Text(c, string(g.Kind)).FontSize(13).Bold()
+					ui.Textf(c, "%d 个文件", g.Count).FontSize(11).TextColor(t.TextMuted)
+				})
+				ui.Text(c, engine.FmtBytes(g.Size)).FontSize(12)
+			})
+		}).Grow(1)
+	})
+}
+
+var kindListState = &ui.ListState{}
+
+func totalGroupSize(groups []engine.KindGroup) int64 {
+	var n int64
+	for _, g := range groups {
+		n += g.Size
+	}
+	return n
+}
+
+func kindIcon(k engine.FileKind) string {
+	switch k {
+	case engine.KindImage:
+		return "🖼️"
+	case engine.KindVideo:
+		return "🎬"
+	case engine.KindAudio:
+		return "🎵"
+	case engine.KindDocument:
+		return "📄"
+	case engine.KindArchive:
+		return "🗜️"
+	case engine.KindInstaller:
+		return "📦"
+	case engine.KindDiskImage:
+		return "💿"
+	case engine.KindDeveloper:
+		return "💻"
+	case engine.KindDesign:
+		return "🎨"
+	case engine.KindBackup:
+		return "🗃️"
+	case engine.KindFont:
+		return "🔤"
+	case engine.KindBook:
+		return "📚"
+	case engine.KindApp:
+		return "📱"
+	case engine.KindData:
+		return "🗄️"
+	default:
+		return "📄"
 	}
 }
 
