@@ -1,0 +1,15 @@
+{
+  "name": "LumeMole",
+  "identifier": "com.lazyhand.lumemole",
+  "version": "0.1.0",
+  "out": "build",
+  "icon": "resources/icon.png",
+  "updates": {
+    "publicKey": "x0xLes3DR3ol6TG6uMVvj8jkqQ6iO1dUbynN7fcVyEs=",
+    "github": "Lazy-Hand/LumeMole"
+  },
+  "macos": {
+    "signingIdentity": "-",
+    "minimumSystemVersion": "14.0"
+  }
+}

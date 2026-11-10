@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#2b3040"/>
+      <stop offset="1" stop-color="#171a24"/>
+    </linearGradient>
+    <linearGradient id="broom" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#5eead4"/>
+      <stop offset="1" stop-color="#8b6ef5"/>
+    </linearGradient>
+    <linearGradient id="stick" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#a78bfa"/>
+      <stop offset="1" stop-color="#7c5cf0"/>
+    </linearGradient>
+  </defs>
+
+  <rect x="24" y="24" width="976" height="976" rx="228" fill="url(#bg)"/>
+
+  <!-- window dots -->
+  <circle cx="128" cy="128" r="20" fill="#5a6072"/>
+  <circle cx="188" cy="128" r="20" fill="#5a6072"/>
+  <circle cx="248" cy="128" r="20" fill="#5a6072"/>
+
+  <!-- broom: diagonal stick + fan head -->
+  <!-- stick -->
+  <path d="M 680 260 L 540 500" stroke="url(#stick)" stroke-width="52" stroke-linecap="round" fill="none"/>
+  <!-- head: swept arc -->
+  <path d="M 360 740 Q 400 540 540 500 Q 680 540 720 740 Z" fill="url(#broom)"/>
+  <!-- bristle lines -->
+  <path d="M 430 690 L 460 620" stroke="#2b3040" stroke-width="16" stroke-linecap="round" fill="none" opacity="0.5"/>
+  <path d="M 540 680 L 540 610" stroke="#2b3040" stroke-width="16" stroke-linecap="round" fill="none" opacity="0.5"/>
+  <path d="M 650 690 L 620 620" stroke="#2b3040" stroke-width="16" stroke-linecap="round" fill="none" opacity="0.5"/>
+
+  <!-- dust motes being swept away -->
+  <circle cx="780" cy="620" r="16" fill="#5eead4" opacity="0.85"/>
+  <circle cx="830" cy="680" r="11" fill="#a78bfa" opacity="0.7"/>
+  <circle cx="760" cy="740" r="9" fill="#8b6ef5" opacity="0.6"/>
+</svg>
