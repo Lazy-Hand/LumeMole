@@ -231,12 +231,146 @@ func doUninstall(a *app.App, st *engine.AppState, ap *engine.AppInfo) {
 	}()
 }
 
-// updatesList — MVP: brew cask outdated.
+// updatesList — outdated apps across brew cask / App Store channels.
 func updatesList(c *ui.Context, a *app.App, st *engine.AppState, t ui.Theme) {
-	placeholder(c, "🔄", "应用更新", "暂支持 Homebrew Cask 更新检测\n\nmas / Sparkle / Electron 更新将在后续版本加入")
+	us := st.Updates
+	if us == nil {
+		us = engine.NewUpdateState()
+		st.Updates = us
+	}
+	if us.Updates == nil && !us.Loading && us.Err == "" {
+		us.Scan(func() { a.Win.Invalidate() })
+	}
+	if us.Loading && len(us.Updates) == 0 {
+		ui.Column(c).Fill().Center().Gap(14).Children(func() {
+			ui.Spinner(c).Size(28, 28)
+			ui.Text(c, "正在检查更新…").TextColor(t.TextMuted)
+		})
+		return
+	}
+	if us.Err != "" && len(us.Updates) == 0 {
+		ui.Column(c).Fill().Center().Gap(14).Children(func() {
+			ui.Text(c, "⚠️").FontSize(40)
+			ui.Text(c, us.Err).FontSize(13).TextColor(t.TextMuted)
+			if ui.Button(c, "重试").Clicked() {
+				us.Err = ""
+				us.Scan(func() { a.Win.Invalidate() })
+			}
+		})
+		return
+	}
+	if len(us.Updates) == 0 {
+		placeholder(c, "✅", "全部是最新版本", "Homebrew Cask / App Store 没有发现可更新的应用")
+		return
+	}
+	ui.Column(c).Fill().Children(func() {
+		ui.Row(c).FillWidth().Padding(10, 20, 6, 20).Children(func() {
+			ui.Textf(c, "%d 个应用可更新", len(us.Updates)).FontSize(12).TextColor(t.TextMuted)
+		})
+		ui.Divider(c).BorderColor(t.Border)
+		ui.List(c, updateListState, len(us.Updates), func(row int) {
+			if row >= len(us.Updates) {
+				return
+			}
+			u := us.Updates[row]
+			ui.Row(c).FillWidth().Padding(10, 20).AlignItems(ui.Center).Gap(12).Children(func() {
+				ui.Column(c).Grow(1).Gap(2).Children(func() {
+					ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
+						ui.Text(c, u.Name).FontSize(13).Bold()
+						src := "Homebrew"
+						if u.Source == "appstore" {
+							src = "App Store"
+						}
+						ui.Text(c, src).FontSize(10).Padding(2, 6).Background(t.Surface).Radius(8).TextColor(t.TextMuted)
+					})
+					ver := ""
+					if len(u.Installed) > 0 {
+						ver = u.Installed[0] + " → "
+					}
+					ui.Text(c, ver+u.Latest).FontSize(11).TextColor(t.TextMuted)
+				})
+				switch {
+				case us.Done[u.Name]:
+					ui.Text(c, "已更新 ✓").FontSize(12).TextColor(t.Accent)
+				case us.Upgrading[u.Name]:
+					ui.Spinner(c).Size(16, 16)
+				case u.Pinned:
+					ui.Text(c, "已固定").FontSize(12).TextColor(t.TextMuted)
+				default:
+					ui.Button(c, "更新").OnClick(func() {
+						us.Upgrade(u, func() { a.Win.Invalidate() })
+					})
+				}
+			})
+		}).Grow(1)
+	})
 }
 
-// startupList — LaunchAgents + login items.
+var updateListState = &ui.ListState{}
+
+// startupList — LaunchAgents + login items with enable/disable.
 func startupList(c *ui.Context, a *app.App, st *engine.AppState, t ui.Theme) {
-	placeholder(c, "🚀", "启动项", "列出自启动项\n(~/Library/LaunchAgents + 登录项)")
+	ss := st.Startups
+	if ss == nil {
+		ss = &engine.StartupState{}
+		st.Startups = ss
+	}
+	if ss.Items == nil && !ss.Loading && ss.Err == "" {
+		ss.Scan(func() { a.Win.Invalidate() })
+	}
+	if ss.Loading && len(ss.Items) == 0 {
+		ui.Column(c).Fill().Center().Gap(14).Children(func() {
+			ui.Spinner(c).Size(28, 28)
+			ui.Text(c, "正在扫描启动项…").TextColor(t.TextMuted)
+		})
+		return
+	}
+	if len(ss.Items) == 0 {
+		placeholder(c, "🚀", "启动项", "没有发现自启动项")
+		return
+	}
+	ui.Column(c).Fill().Children(func() {
+		ui.Row(c).FillWidth().Padding(10, 20, 6, 20).Children(func() {
+			ui.Textf(c, "%d 个启动项", len(ss.Items)).FontSize(12).TextColor(t.TextMuted)
+			if ss.Err != "" {
+				ui.Spacer(c)
+				ui.Text(c, ss.Err).FontSize(11).TextColor(ui.Hex("#e08c3c"))
+			}
+		})
+		ui.Divider(c).BorderColor(t.Border)
+		ui.List(c, startupListState, len(ss.Items), func(row int) {
+			if row >= len(ss.Items) {
+				return
+			}
+			it := ss.Items[row]
+			ui.Row(c).FillWidth().Padding(10, 20).AlignItems(ui.Center).Gap(12).Children(func() {
+				ui.Column(c).Grow(1).Gap(2).Children(func() {
+					ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
+						ui.Text(c, it.Name).FontSize(13).Bold()
+						kind := "后台服务"
+						if it.Kind == "loginitem" {
+							kind = "登录项"
+						}
+						ui.Text(c, kind).FontSize(10).Padding(2, 6).Background(t.Surface).Radius(8).TextColor(t.TextMuted)
+					})
+					if it.Program != "" {
+						ui.Text(c, it.Program).FontSize(10).TextColor(t.TextMuted)
+					}
+				})
+				idx := row
+				if it.Kind == "loginitem" {
+					ui.Button(c, "删除").OnClick(func() {
+						st.Startups.Toggle(idx, func() { a.Win.Invalidate() })
+					})
+				} else {
+					en := it.Enabled
+					ui.Switch(c, &en).OnClick(func() {
+						st.Startups.Toggle(idx, func() { a.Win.Invalidate() })
+					})
+				}
+			})
+		}).Grow(1)
+	})
 }
+
+var startupListState = &ui.ListState{}

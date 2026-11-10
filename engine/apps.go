@@ -284,10 +284,12 @@ type AppState struct {
 	Remnants  []Remnant // remnants of selected app
 	Query     string   // search filter
 	SubTab    int      // 0=卸载 1=更新 2=启动项
+	Updates   *UpdateState
+	Startups  *StartupState
 }
 
 func NewAppState() *AppState {
-	return &AppState{Scanner: NewAppScanner(), Selected: -1}
+	return &AppState{Scanner: NewAppScanner(), Selected: -1, Updates: NewUpdateState()}
 }
 
 // Scan loads the app inventory in a goroutine.
