@@ -10,16 +10,18 @@ import (
 // status chip right.
 func TopBar(c *ui.Context, a *app.App) {
 	t := c.Theme()
+	bar := c.TitleBar()
 
-	ui.Row(c).FillWidth().Padding(14, 22, 10, 22).AlignItems(ui.Center).Children(func() {
-		// Left: logo (fixed width so tabs stay centered). Leading 60 clears
-		// the hidden-titlebar traffic lights (close/min/zoom sit ~x12–66).
-		ui.Row(c).Width(200).Gap(8).Padding(0, 0, 0, 60).AlignItems(ui.Center).Children(func() {
+	ui.Row(c).FillWidth().Padding(14, 22, 10, 22).AlignItems(ui.Center).DragWindow().Children(func() {
+		// Left: logo (fixed width so tabs stay centered). bar.Left clears
+		// the hidden-titlebar traffic lights; it is 0 on other platforms.
+		ui.Row(c).Width(200).Gap(8).Padding(0, 0, 0, bar.Left).AlignItems(ui.Center).Children(func() {
 			ui.Text(c, "🐹").FontSize(20)
 			ui.Text(c, "LumeMole").FontSize(15).Bold()
 		})
 
-		// Center: capsule tab control.
+		// Center: capsule tab control. Interactive children still get
+		// their clicks — DragWindow only handles presses on bare areas.
 		ui.Row(c).Grow(1).Justify(ui.Center).Children(func() {
 			pillTabs(c, a)
 		})
