@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.1]
+
+修复从 Finder/Dock 启动时的三个问题：
+
+- 修复「未找到 Mole CLI」误报：Finder 启动的 app PATH 不含 Homebrew 前缀，现会回退探测 `/opt/homebrew/bin`、`/usr/local/bin`
+- 修复左上角红绿灯按钮遮挡 logo（改用系统实测的红绿灯区域宽度留白）
+- 修复窗口无法拖动：顶栏空白处现在可以拖动窗口，双击缩放
+
 ## [0.1.0]
 
 首次发布。
