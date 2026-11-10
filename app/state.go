@@ -20,10 +20,11 @@ const (
 	TabOptimize
 	TabAnalyze
 	TabStatus
+	TabDoctor
 )
 
 // TabNames are the top-bar labels.
-var TabNames = []string{"清理", "软件", "优化", "分析", "状态"}
+var TabNames = []string{"清理", "软件", "优化", "分析", "状态", "诊断"}
 
 // Settings persists user preferences to ~/.config/lumemole/config.json.
 type Settings struct {
@@ -57,6 +58,8 @@ type App struct {
 	AI *engine.AIState
 	// ShowAI switches the clean page to the AI-tools view.
 	ShowAI bool
+	// Doctor is the system-diagnostic state.
+	Doctor *engine.DoctorState
 
 	mu sync.Mutex
 }

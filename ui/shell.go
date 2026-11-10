@@ -32,6 +32,8 @@ func Shell(c *ui.Context, a *app.App) {
 					SoftwarePage(c, a)
 				case app.TabOptimize:
 					OptimizePage(c, a)
+				case app.TabDoctor:
+					DoctorPage(c, a)
 				}
 			}
 		})
