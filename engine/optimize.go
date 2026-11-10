@@ -215,6 +215,135 @@ func optimizeTasks() []OptimizeTask {
 				return fmt.Sprintf("发现 %d 个孤儿项: %s", len(orphans), strings.Join(orphans, ", ")), nil
 			},
 		},
+		{
+			ID:          "memory_purge",
+			Name:        "释放闲置物理内存",
+			Description: "执行 purge 回收文件缓存占用的内存",
+			Run: func() (string, error) {
+				if err := exec.Command("purge").Run(); err != nil {
+					return "", err
+				}
+				return "已回收闲置内存", nil
+			},
+		},
+		{
+			ID:          "eject_stale_dmg",
+			Name:        "弹出闲置磁盘镜像",
+			Description: "卸载仍挂载的 .dmg/.sparseimage 卷（/Volumes 下）",
+			Run: func() (string, error) {
+				out, err := exec.Command("hdiutil", "info").Output()
+				if err != nil {
+					return "", err
+				}
+				var ejected, failed int
+				var dev string
+				for _, line := range strings.Split(string(out), "\n") {
+					line = strings.TrimSpace(line)
+					if strings.HasPrefix(line, "/dev/disk") {
+						dev = strings.Fields(line)[0]
+					}
+					if dev != "" && strings.HasPrefix(line, "/Volumes/") &&
+						!strings.Contains(line, "Recovery") && !strings.Contains(line, "Preboot") {
+						if exec.Command("hdiutil", "detach", dev, "-quiet").Run() == nil {
+							ejected++
+						} else {
+							failed++
+						}
+						dev = ""
+					}
+				}
+				if ejected == 0 && failed == 0 {
+					return "没有挂载的磁盘镜像", nil
+				}
+				return fmt.Sprintf("已弹出 %d 个镜像（%d 个失败）", ejected, failed), nil
+			},
+		},
+		{
+			ID:          "quarantine_events",
+			Name:        "清空下载隔离记录",
+			Description: "VACUUM Gatekeeper QuarantineEventsV2 数据库（不影响文件隔离标记）",
+			Run: func() (string, error) {
+				home, _ := os.UserHomeDir()
+				db := filepath.Join(home, "Library", "Preferences",
+					"com.apple.LaunchServices.QuarantineEventsV2")
+				if _, err := os.Stat(db); err != nil {
+					return "隔离数据库已是空的", nil
+				}
+				if err := exec.Command("sqlite3", db,
+					"DELETE FROM LSQuarantineEvent; VACUUM;").Run(); err != nil {
+					return "", err
+				}
+				return "已清空下载隔离历史", nil
+			},
+		},
+		{
+			ID:          "rebuild_icon_cache",
+			Name:        "重建图标与快速预览",
+			Description: "刷新系统图标服务与 QuickLook 缩略图缓存",
+			Run: func() (string, error) {
+				_ = exec.Command("qlmanage", "-r", "cache").Run()
+				_ = exec.Command("qlmanage", "-r").Run()
+				_ = exec.Command("killall", "-HUP", "iconservicesd").Run()
+				return "图标与预览缓存已开始重建", nil
+			},
+		},
+		{
+			ID:          "broken_prefs_audit",
+			Name:        "损坏配置检测",
+			Description: "扫描 ~/Library/Preferences 下无法解析的 plist（只读）",
+			Run: func() (string, error) {
+				home, _ := os.UserHomeDir()
+				dir := filepath.Join(home, "Library", "Preferences")
+				entries, _ := os.ReadDir(dir)
+				var broken []string
+				for _, e := range entries {
+					if !strings.HasSuffix(e.Name(), ".plist") {
+						continue
+					}
+					p := filepath.Join(dir, e.Name())
+					if err := exec.Command("plutil", "-lint", p).Run(); err != nil {
+						broken = append(broken, e.Name())
+					}
+				}
+				if len(broken) == 0 {
+					return "未发现损坏的 plist", nil
+				}
+				if len(broken) > 8 {
+					return fmt.Sprintf("发现 %d 个损坏 plist（前 8 个）: %s", len(broken),
+						strings.Join(broken[:8], ", ")), nil
+				}
+				return fmt.Sprintf("发现 %d 个损坏 plist: %s", len(broken),
+					strings.Join(broken, ", ")), nil
+			},
+		},
+		{
+			ID:          "vacuum_mail_msg",
+			Name:        "压缩邮件与信息数据库",
+			Description: "VACUUM Mail/VCHandwriting/信息 的 SQLite 数据库，回收空闲页",
+			Run: func() (string, error) {
+				home, _ := os.UserHomeDir()
+				targets := []string{
+					filepath.Join(home, "Library", "Mail", "V10", "MailData", "Envelope Index"),
+					filepath.Join(home, "Library", "Messages", "chat.db"),
+				}
+				var done, skipped int
+				for _, db := range targets {
+					if _, err := os.Stat(db); err != nil {
+						skipped++
+						continue
+					}
+					if exec.Command("sqlite3", db, "VACUUM;").Run() == nil {
+						done++
+					} else {
+						skipped++
+					}
+				}
+				if done == 0 {
+					return fmt.Sprintf("没有可压缩的数据库（%d 个不存在或被占用）", skipped), nil
+				}
+				return fmt.Sprintf("已压缩 %d 个数据库", done), nil
+			},
+		},
 	}
 }
 
