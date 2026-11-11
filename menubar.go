@@ -33,7 +33,8 @@ func setupMenuBar(a *app.App) {
 		ID:      "lumemole.tray",
 		Title:   "🐹",
 		ToolTip: "LumeMole",
-		Menu:    trayMenu(a),
+		// No Menu here — on macOS a status item with a menu swallows both
+		// clicks. Set the menu via PopUpMenu in OnRightClick instead.
 	})
 	if err != nil {
 		return
@@ -41,9 +42,13 @@ func setupMenuBar(a *app.App) {
 	menuBar.Tray = tray
 	menuBar.startMetrics(a)
 
-	// Left-click opens the status popover; right-click opens the menu.
+	// Left-click opens the status popover; right-click pops the menu.
 	tray.OnClick(func() {
 		togglePanel(a)
+	})
+	tray.OnRightClick(func() {
+		tray.SetMenu(trayMenu(a))
+		tray.PopUpMenu()
 	})
 }
 
