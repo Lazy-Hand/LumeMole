@@ -10,14 +10,15 @@ import (
 
 	"lumemole/app"
 	"lumemole/engine"
+	moleui "lumemole/ui"
 )
 
 // MenuBarState holds the tray and its toggles.
 type MenuBarState struct {
 	Tray          *mygo.Tray
-	keepAwakeOff  func() // release from Power.KeepAwake
-	keepAwakeOn   bool
-	caffeinateCmd *exec.Cmd // "风扇降温" uses caffeinate-like; here we just track
+	panel         *mygo.Window // tray popover flyout
+	keepAwakeOff  func()       // release from Power.KeepAwake
+	caffeinateCmd *exec.Cmd    // "风扇降温" uses caffeinate-like; here we just track
 
 	// Live metrics from status-go, updating the tray title + tooltip.
 	metricStop chan struct{}
@@ -39,6 +40,11 @@ func setupMenuBar(a *app.App) {
 	}
 	menuBar.Tray = tray
 	menuBar.startMetrics(a)
+
+	// Left-click opens the status popover; right-click opens the menu.
+	tray.OnClick(func() {
+		togglePanel(a)
+	})
 }
 
 // startMetrics streams status-go snapshots into the tray title/tooltip.
@@ -126,9 +132,9 @@ func trayMenu(a *app.App) *mygo.Menu {
 	return mygo.NewMenu([]*mygo.MenuItem{
 		{Label: "显示主窗口", Click: showMain},
 		mygo.Separator(),
-		{Label: "保持常亮", Type: mygo.MenuItemCheckbox, Checked: menuBar.keepAwakeOn,
+		{Label: "保持常亮", Type: mygo.MenuItemCheckbox, Checked: a.KeepAwakeOn,
 			Click: func(item *mygo.MenuItem, _ *mygo.Window) {
-				toggleKeepAwake()
+				toggleKeepAwake(a)
 			}},
 		{Label: "清洁屏幕", Click: func(*mygo.MenuItem, *mygo.Window) { showCleanScreen() }},
 		{Label: "风扇降温", Click: func(*mygo.MenuItem, *mygo.Window) { a.Tab = app.TabStatus; showMain(nil, nil) }},
@@ -143,17 +149,49 @@ func trayMenu(a *app.App) *mygo.Menu {
 	})
 }
 
+// togglePanel opens or closes the tray popover flyout.
+func togglePanel(a *app.App) {
+	if menuBar.panel != nil {
+		menuBar.panel.Close()
+		menuBar.panel = nil
+		a.PanelWin = nil
+		return
+	}
+	panel := mygo.NewFlyout(mygo.FlyoutOptions{
+		Tray:       menuBar.Tray,
+		Popover:    true,
+		Focusable:  true,
+		FitContent: true,
+		MinWidth:   320,
+		MaxWidth:   480,
+		MinHeight:  200,
+		MaxHeight:  600,
+		Content: ui.View(func(c *ui.Context) {
+			moleui.MenuPanel(c, a)
+		}),
+	})
+	panel.Show()
+	menuBar.panel = panel
+	a.PanelWin = panel
+
+	// When the flyout closes (click outside, Escape), clear our ref.
+	panel.OnClosed(func() {
+		menuBar.panel = nil
+		a.PanelWin = nil
+	})
+}
+
 // toggleKeepAwake uses mygo's native Power.KeepAwake.
-func toggleKeepAwake() {
-	if menuBar.keepAwakeOn {
+func toggleKeepAwake(a *app.App) {
+	if a.KeepAwakeOn {
 		if menuBar.keepAwakeOff != nil {
 			menuBar.keepAwakeOff()
 			menuBar.keepAwakeOff = nil
 		}
-		menuBar.keepAwakeOn = false
+		a.KeepAwakeOn = false
 	} else {
 		menuBar.keepAwakeOff = mygo.Power.KeepAwake("LumeMole 保持常亮", true)
-		menuBar.keepAwakeOn = true
+		a.KeepAwakeOn = true
 	}
 }
 

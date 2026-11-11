@@ -37,6 +37,9 @@ type Settings struct {
 // The mutex guards only data touched by real background writers.
 type App struct {
 	Win *mygo.Window
+	// PanelWin is the tray popover window, set when the flyout opens.
+	PanelWin   *mygo.Window
+	KeepAwakeOn bool
 
 	Tab      Tab
 	Settings Settings
