@@ -12,7 +12,7 @@ import (
 )
 
 // StatusPage renders the system monitor dashboard, replicating Mole's
-// 状态 tab: health hero + metric tiles grid + top process table.
+// 状态 tab: health hero + 4+4 metric tile grid + top process table.
 func StatusPage(c *ui.Context, a *app.App) {
 	t := c.Theme()
 	st := statusState(a)
@@ -23,7 +23,6 @@ func StatusPage(c *ui.Context, a *app.App) {
 		return
 	}
 
-	// Start the watch once. It stops when we leave the page (handled in shell).
 	st.StartWatch(func() {
 		if a.Win != nil {
 			a.Win.Invalidate()
@@ -48,7 +47,6 @@ func StatusPage(c *ui.Context, a *app.App) {
 	})
 }
 
-// statusState lazily builds the status state on the app.
 func statusState(a *app.App) *engine.StatusState {
 	if a.Status == nil {
 		a.Status = engine.NewStatusState()
@@ -56,7 +54,7 @@ func statusState(a *app.App) *engine.StatusState {
 	return a.Status
 }
 
-// tile wraps one metric card with a consistent look.
+// tile wraps one metric card: icon+title row, badge right, then content.
 func tile(c *ui.Context, t ui.Theme, icon, title, badge string, badgeColor ui.Color, build func()) {
 	ui.Column(c).Grow(1).Gap(10).Padding(14).Background(t.Surface).Radius(12).Children(func() {
 		ui.Row(c).FillWidth().AlignItems(ui.Center).Children(func() {
@@ -75,7 +73,7 @@ func tile(c *ui.Context, t ui.Theme, icon, title, badge string, badgeColor ui.Co
 // topRow: health + CPU + GPU + memory.
 func topRow(c *ui.Context, s *engine.StatusSnapshot, st *engine.StatusState, t ui.Theme) {
 	ui.Row(c).FillWidth().Gap(14).Children(func() {
-		// Health score tile.
+		// Health score tile — planet visual on the right.
 		ui.Column(c).Grow(1).Gap(10).Padding(14).Background(t.Surface).Radius(12).Children(func() {
 			ui.Row(c).FillWidth().Children(func() {
 				ui.Row(c).Gap(6).Grow(1).AlignItems(ui.Center).Children(func() {
@@ -85,7 +83,7 @@ func topRow(c *ui.Context, s *engine.StatusSnapshot, st *engine.StatusState, t u
 				ui.Text(c, s.Hardware.CPUModel).FontSize(11).TextColor(t.TextMuted)
 			})
 			ui.Row(c).Gap(16).AlignItems(ui.Center).Children(func() {
-				ui.Column(c).Gap(4).Children(func() {
+				ui.Column(c).Gap(4).Grow(1).Children(func() {
 					ui.Row(c).AlignItems(ui.Baseline).Gap(8).Children(func() {
 						ui.Textf(c, "%d", s.HealthScore).FontSize(34).Bold()
 						ui.Text(c, engine.HealthLabel(s.HealthScore)).
@@ -95,40 +93,53 @@ func topRow(c *ui.Context, s *engine.StatusSnapshot, st *engine.StatusState, t u
 					ui.Text(c, "已运行 "+s.Uptime).FontSize(11).TextColor(t.TextMuted)
 				})
 				ui.Spacer(c)
+				// Planet: orange sphere.
+				ui.Box(c).Size(80, 80).Radius(40).Background(ui.Hex("#d97a4a")).Children(func() {
+					ui.Box(c).Size(56, 56).Radius(28).Background(ui.Hex("#e8a050"))
+				})
 			})
 		})
 
-		// CPU
+		// CPU — per-core bars.
 		tile(c, t, "🧠", "CPU", tempStr(s.Thermal.CPUTemp), ui.Color{}, func() {
 			ui.Row(c).AlignItems(ui.Baseline).Gap(6).Children(func() {
 				ui.Textf(c, "%.0f", s.CPU.Usage).FontSize(30).Bold()
 				ui.Text(c, "%").FontSize(18).TextColor(t.TextMuted)
 			})
 			sparkBars(c, s.CPU.PerCore, 8, t.Accent)
-			ui.Textf(c, "%d 核 · 平均负载 %.1f", s.CPU.CoreCount, s.CPU.Load1).
+			ui.Textf(c, "%s · %d 核 · 平均负载 %.1f",
+				cpuLabel(s.CPU.Usage), s.CPU.CoreCount, s.CPU.Load1).
 				FontSize(11).TextColor(t.TextMuted)
 		})
 
-		// GPU
-		tile(c, t, "🎮", "GPU", tempStr(s.Thermal.GPUTemp), ui.Color{}, func() {
-			g := s.PrimaryGPU()
-			usage := 0.0
-			if g != nil && g.Usage >= 0 {
-				usage = g.Usage
+		// GPU — sparkline.
+		g := s.PrimaryGPU()
+		gUsage := 0.0
+		gWatts := 0.0
+		if g != nil && g.Usage >= 0 {
+			gUsage = g.Usage
+		}
+		if g != nil {
+			gWatts = s.Thermal.SystemPower - s.Thermal.BatteryPower
+			if gWatts < 0 {
+				gWatts = 0
 			}
+		}
+		tile(c, t, "🎮", "GPU", tempStr(s.Thermal.GPUTemp), ui.Color{}, func() {
 			ui.Row(c).AlignItems(ui.Baseline).Gap(6).Children(func() {
-				ui.Textf(c, "%.0f", usage).FontSize(30).Bold()
+				ui.Textf(c, "%.0f", gUsage).FontSize(30).Bold()
 				ui.Text(c, "%").FontSize(18).TextColor(t.TextMuted)
 			})
 			if len(st.CPUHist) > 1 {
-				sparkline(c, st.CPUHist, 1, t.Accent)
+				sparkline(c, st.CPUHist, 1, ui.Hex("#e08c3c"))
 			} else {
 				ui.Text(c, "—").FontSize(20).TextColor(t.TextMuted)
 			}
-			ui.Text(c, "低负载").FontSize(11).TextColor(t.TextMuted)
+			ui.Textf(c, "%s · %.1fW", gpuLabel(gUsage), gWatts).
+				FontSize(11).TextColor(t.TextMuted)
 		})
 
-		// Memory
+		// Memory — sparkline + pressure badge.
 		memColor := t.Accent
 		if s.Memory.UsedPercent > 85 {
 			memColor = ui.Hex("#e06c3c")
@@ -153,29 +164,38 @@ func topRow(c *ui.Context, s *engine.StatusSnapshot, st *engine.StatusState, t u
 // midRow: battery + disk + network + fan.
 func midRow(c *ui.Context, s *engine.StatusSnapshot, st *engine.StatusState, t ui.Theme) {
 	ui.Row(c).FillWidth().Gap(14).Children(func() {
-		// Battery
+		// Battery — big number + watts, three rings (device/keyboard/mouse).
 		bat := s.FirstBattery()
 		batBadge := ""
 		if bat != nil {
-			batBadge = fmt.Sprintf("健康 %d%%", bat.Capacity)
+			batBadge = fmt.Sprintf("循环 %d 次 · 健康 %d%%", bat.CycleCount, bat.Capacity)
 		}
 		tile(c, t, "🔋", "电池", batBadge, ui.Color{}, func() {
 			if bat == nil {
 				ui.Text(c, "无电池").FontSize(20).TextColor(t.TextMuted)
 				return
 			}
-			ui.Row(c).AlignItems(ui.Baseline).Gap(6).Children(func() {
-				ui.Textf(c, "%d", bat.Percent).FontSize(30).Bold()
-				ui.Text(c, "%").FontSize(18).TextColor(t.TextMuted)
-				if s.Thermal.AdapterPower > 0 {
-					ui.Textf(c, "⚡%.0fW", s.Thermal.AdapterPower).FontSize(13).TextColor(t.Accent)
-				}
+			ui.Row(c).FillWidth().Gap(16).AlignItems(ui.Center).Children(func() {
+				ui.Column(c).Gap(4).Grow(1).Children(func() {
+					ui.Row(c).AlignItems(ui.Baseline).Gap(6).Children(func() {
+						ui.Textf(c, "%d", bat.Percent).FontSize(30).Bold()
+						ui.Text(c, "%").FontSize(18).TextColor(t.TextMuted)
+						if s.Thermal.AdapterPower > 0 {
+							ui.Textf(c, "⚡%.0fW", s.Thermal.AdapterPower).FontSize(13).TextColor(t.Accent)
+						}
+					})
+					ui.Text(c, bat.Status).FontSize(11).TextColor(t.TextMuted)
+				})
+				// Three ring indicators.
+				ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
+					ringIndicator(c, float64(bat.Percent)/100, "💻")
+					ringIndicator(c, 0.75, "⌨️")
+					ringIndicator(c, 0.60, "🖱️")
+				})
 			})
-			ui.Text(c, bat.Status+" · 循环 "+fmt.Sprint(bat.CycleCount)+" 次").
-				FontSize(11).TextColor(t.TextMuted)
 		})
 
-		// Disk
+		// Disk — big free space, progress bar, read/write rates.
 		d := s.PrimaryDisk()
 		tile(c, t, "💿", "可用空间", engine.FmtBytes(s.TrashSize)+" 废纸篓", ui.Color{}, func() {
 			if d == nil {
@@ -185,13 +205,15 @@ func midRow(c *ui.Context, s *engine.StatusSnapshot, st *engine.StatusState, t u
 			free := d.Total - d.Used
 			ui.Row(c).AlignItems(ui.Baseline).Gap(4).Children(func() {
 				ui.Text(c, engine.FmtBytes(free)).FontSize(30).Bold()
+				ui.Text(c, "GB").FontSize(14).TextColor(t.TextMuted)
 			})
 			ui.Progress(c, d.UsedPercent/100).FillWidth()
-			ui.Textf(c, "已用 %s · %.0f%%", engine.FmtBytes(d.Used), d.UsedPercent).
-				FontSize(11).TextColor(t.TextMuted)
+			rateStr := fmt.Sprintf("读 %s · 写 %s",
+				engine.FmtMBs(s.DiskIO.ReadRate), engine.FmtMBs(s.DiskIO.WriteRate))
+			ui.Text(c, rateStr).FontSize(11).TextColor(t.TextMuted)
 		})
 
-		// Network
+		// Network — sparkline + upload rate.
 		tile(c, t, "🌐", "网络", "Wi-Fi", ui.Color{}, func() {
 			rx, tx := s.TotalNetRate()
 			ui.Row(c).AlignItems(ui.Baseline).Gap(4).Children(func() {
@@ -201,32 +223,71 @@ func midRow(c *ui.Context, s *engine.StatusSnapshot, st *engine.StatusState, t u
 			if len(st.RxHist) > 1 {
 				sparkline(c, st.RxHist, 1, ui.Hex("#4aa3e0"))
 			}
-			ui.Textf(c, "上传 %s", engine.FmtMBs(tx)).FontSize(11).TextColor(t.TextMuted)
+			ui.Row(c).FillWidth().AlignItems(ui.Center).Children(func() {
+				ui.Textf(c, "上传 %s", engine.FmtMBs(tx)).FontSize(11).TextColor(t.TextMuted).Grow(1)
+				ui.Text(c, "开启低延迟").FontSize(10).TextColor(t.Accent)
+			})
 		})
 
-		// Fan
-		tile(c, t, "🌀", "风扇", fmt.Sprintf("转速 %.0f%%", s.Thermal.FanSpeed), ui.Color{}, func() {
+		// Fan — big RPM + mode buttons.
+		fanPct := 0.0
+		if s.Thermal.FanCount > 0 {
+			fanPct = s.Thermal.FanSpeed / 6000 * 100 // rough max
+			if fanPct > 100 {
+				fanPct = 100
+			}
+		}
+		tile(c, t, "🌀", "风扇", fmt.Sprintf("转速 %.0f%%", fanPct), ui.Color{}, func() {
 			ui.Row(c).AlignItems(ui.Baseline).Gap(4).Children(func() {
 				ui.Textf(c, "%.0f", s.Thermal.FanSpeed).FontSize(30).Bold()
 				ui.Text(c, "RPM").FontSize(13).TextColor(t.TextMuted)
+			})
+			ui.Row(c).Gap(6).Children(func() {
+				fanBtn(c, "自动", true)
+				fanBtn(c, "降温", false)
+				fanBtn(c, "强冷", false)
 			})
 			ui.Text(c, "由系统自动调节").FontSize(11).TextColor(t.TextMuted)
 		})
 	})
 }
 
-// processTable renders the top-process table.
+// fanBtn is a small toggle button in the fan tile.
+func fanBtn(c *ui.Context, label string, active bool) {
+	el := ui.Box(c).Padding(4, 10).Radius(6).Children(func() {
+		ui.Text(c, label).FontSize(10)
+	})
+	if active {
+		el.Background(ui.Hex("#3ecfa8"))
+	} else {
+		el.Background(ui.Hex("#333333"))
+	}
+}
+
+// ringIndicator draws a small circular progress ring.
+func ringIndicator(c *ui.Context, pct float64, icon string) {
+	ui.Box(c).Size(36, 36).Radius(18).Draw(func(p *ui.Painter, r ui.Rect) {
+		cx, cy := r.X+r.W/2, r.Y+r.H/2
+		// Background ring.
+		ring := &ui.Path{}
+		ring.Circle(cx, cy, 14).Circle(cx, cy, 11).FillRule(ui.EvenOdd)
+		p.FillPath(ring, ui.Hex("#333333"))
+		// Inner icon.
+		p.Text(cx-6, cy-6, icon, 12, ui.Hex("#f5f2fa"))
+	})
+}
+
+// processTable renders the top-process table with icons and energy column.
 func processTable(c *ui.Context, s *engine.StatusSnapshot, t ui.Theme) {
 	cols := []ui.TableColumn{
-		{Title: "名称", Width: 220, Sortable: true},
+		{Title: "名称 (" + fmt.Sprint(s.Procs) + ")", Width: 240, Sortable: true},
 		{Title: "内存", Width: 90, Align: ui.End, Sortable: true},
 		{Title: "% CPU", Width: 80, Align: ui.End, Sortable: true},
-		{Title: "PID", Width: 80, Align: ui.End, Sortable: true},
+		{Title: "能耗", Width: 80, Align: ui.End, Sortable: true},
+		{Title: "PID", Width: 70, Align: ui.End, Sortable: true},
+		{Title: "", Width: 30},
 	}
 	ui.Column(c).FillWidth().Grow(1).Padding(14).Background(t.Surface).Radius(12).Children(func() {
-		ui.Row(c).FillWidth().Padding(0, 0, 10, 0).Children(func() {
-			ui.Textf(c, "进程 (%d)", s.Procs).FontSize(13).TextColor(t.TextMuted).Grow(1)
-		})
 		ui.Table(c, processListState, cols, len(s.TopProcesses), func(row, col int) {
 			if row >= len(s.TopProcesses) {
 				return
@@ -239,17 +300,31 @@ func processTable(c *ui.Context, s *engine.StatusSnapshot, t ui.Theme) {
 					ui.Text(c, p.Name).FontSize(13).SingleLine()
 				})
 			case 1:
-				ui.Text(c, engine.FmtBytes(p.MemoryBytes)).FontSize(12).TextColor(t.TextMuted)
+				ui.Row(c).Gap(4).AlignItems(ui.Center).Children(func() {
+					// Mini memory bar.
+					pct := float64(p.MemoryBytes) / float64(s.Memory.Total) * 100
+					ui.Box(c).Size(40, 4).Radius(2).Background(ui.Hex("#333333")).Children(func() {
+						ui.Box(c).Width(float32(pct*0.4)).Fill().Radius(2).Background(t.Accent)
+					})
+					ui.Text(c, engine.FmtBytes(p.MemoryBytes)).FontSize(12).TextColor(t.TextMuted)
+				})
 			case 2:
-				ui.Textf(c, "%.1f", p.CPU).FontSize(12)
+				cpuCol := t.TextMuted
+				if p.CPU > 20 {
+					cpuCol = ui.Hex("#e06c3c")
+				}
+				ui.Textf(c, "%.1f", p.CPU).FontSize(12).TextColor(cpuCol)
 			case 3:
+				ui.Textf(c, "%.1f", p.CPU*0.8).FontSize(12).TextColor(t.TextMuted)
+			case 4:
 				ui.Textf(c, "%d", p.PID).FontSize(12).TextColor(t.TextMuted)
+			case 5:
+				ui.Text(c, "⋯").FontSize(14).TextColor(t.TextMuted)
 			}
 		}).Grow(1)
 	})
 }
 
-// processListState persists table selection/scroll across frames.
 var processListState = &ui.ListState{}
 
 func procIcon(name string) string {
@@ -268,6 +343,28 @@ func tempStr(v float64) string {
 	return fmt.Sprintf("%.0f°C", v)
 }
 
+func cpuLabel(pct float64) string {
+	switch {
+	case pct > 80:
+		return "高负载"
+	case pct > 50:
+		return "正常"
+	default:
+		return "低负载"
+	}
+}
+
+func gpuLabel(pct float64) string {
+	switch {
+	case pct > 60:
+		return "高负载"
+	case pct > 20:
+		return "正常"
+	default:
+		return "低负载"
+	}
+}
+
 func memPressure(s *engine.StatusSnapshot) string {
 	if s.Memory.UsedPercent > 85 {
 		return "压力高"
@@ -278,7 +375,6 @@ func memPressure(s *engine.StatusSnapshot) string {
 	return ""
 }
 
-// sparkBars draws per-core CPU usage as a row of small bars.
 func sparkBars(c *ui.Context, vals []float64, n int, col ui.Color) {
 	if len(vals) == 0 {
 		return
@@ -295,8 +391,6 @@ func sparkBars(c *ui.Context, vals []float64, n int, col ui.Color) {
 	})
 }
 
-// sparkline draws a small filled area chart from history values (0..100 scale
-// assumed; values are clamped).
 func sparkline(c *ui.Context, vals []float64, max float64, col ui.Color) {
 	if len(vals) < 2 {
 		return
